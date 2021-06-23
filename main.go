@@ -38,39 +38,6 @@ func init() {
 	flag.Parse()
 }
 
-func check(e error) {
-	if e != nil {
-		panic(e)
-	}
-}
-
-func match(s *discordgo.Session, m *discordgo.MessageCreate, queueName string) {
-	if value, ok := allQueueNames[queueName]; ok {
-		fmt.Println("value: ", value)
-	} else {
-		_, err := s.ChannelMessageSend(m.ChannelID, m.Author.Mention()+"match target invalid!")
-		check(err)
-	}
-
-	var capacity int
-	if strings.HasPrefix(queueName, "2") {
-		capacity = 2
-	} else {
-		capacity = 3
-	}
-
-	var curLen = int(rdb.LLen(ctx, queueName).Val())
-	if curLen == capacity-1 {
-		var matchedMembers = rdb.LPopCount(ctx, queueName, curLen).Val()
-		_, err := s.ChannelMessageSend(m.ChannelID, queueName+": "+strings.Join(matchedMembers, " ")+" "+m.Author.Mention())
-		check(err)
-	} else {
-		rdb.RPush(ctx, queueName, m.Author.Mention())
-		_, err := s.ChannelMessageSend(m.ChannelID, strconv.Itoa(curLen+1)+"/"+strconv.Itoa(capacity)+" filled in "+queueName)
-		check(err)
-	}
-}
-
 func main() {
 	// read Hjson
 	hjsonBytes, err := ioutil.ReadFile(os.Getenv("STUDY_TOGETHER_MODE") + "_config.hjson")
@@ -90,7 +57,7 @@ func main() {
 	rdb = redis.NewClient(&redis.Options{
 		Addr:     os.Getenv("redis_host") + ":" + os.Getenv("redis_port"),
 		Password: os.Getenv("redis_password"), // no password set
-		DB:  redisDBNum,  // use default DB
+		DB:       redisDBNum,                  // use default DB
 	})
 	rdb.Ping(ctx)
 
@@ -132,6 +99,12 @@ func main() {
 	dg.Close()
 }
 
+func check(e error) {
+	if e != nil {
+		panic(e)
+	}
+}
+
 // This function will be called (due to AddHandler above) every time a new
 // message is created on any channel that the authenticated bot has access to.
 //
@@ -144,6 +117,11 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		return
 	}
 
+	// In this example, we only care about messages that are "ping".
+	if !strings.HasPrefix(m.Content, "%") {
+		return
+	}
+
 	// Ensure the commands are in command channels
 	var found = false
 	var commandChannels = config["command_channels"].([]interface{})
@@ -152,11 +130,6 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		if m.ChannelID == v {
 			found = true
 		}
-	}
-
-	// In this example, we only care about messages that are "ping".
-	if !strings.HasPrefix(m.Content, "%") {
-		return
 	}
 
 	if !found {
@@ -180,8 +153,40 @@ Please use one of the following commands to join the respective queues:
 `
 		_, err := s.ChannelMessageSend(m.ChannelID, helpMsg)
 		check(err)
-	} else if strings.HasPrefix(m.Content, "%match") { // prevent indexing out of bounds
-		var arg = m.Content[len("%match")+1:] // + 1 for space
+	} else if strings.HasPrefix(m.Content, "%match ") { // prevent indexing out of bounds
+		var arg = m.Content[len("%match "):] // + 1 for space
 		match(s, m, arg)
+	} else {
+		_, err := s.ChannelMessageSend(m.ChannelID, m.Author.Mention()+" Incorrect command format!")
+		check(err)
+		return
+	}
+}
+
+func match(s *discordgo.Session, m *discordgo.MessageCreate, queueName string) {
+	if value, ok := allQueueNames[queueName]; ok {
+		fmt.Println("value: ", value)
+	} else {
+		_, err := s.ChannelMessageSend(m.ChannelID, m.Author.Mention()+" Match target invalid!")
+		check(err)
+		return
+	}
+
+	var capacity int
+	if strings.HasPrefix(queueName, "2") {
+		capacity = 2
+	} else {
+		capacity = 3
+	}
+
+	var curLen = int(rdb.LLen(ctx, queueName).Val())
+	if curLen == capacity-1 {
+		var matchedMembers = rdb.LPopCount(ctx, queueName, curLen).Val()
+		_, err := s.ChannelMessageSend(m.ChannelID, queueName+": "+strings.Join(matchedMembers, " ")+" "+m.Author.Mention())
+		check(err)
+	} else {
+		rdb.RPush(ctx, queueName, m.Author.Mention())
+		_, err := s.ChannelMessageSend(m.ChannelID, strconv.Itoa(curLen+1)+"/"+strconv.Itoa(capacity)+" filled in "+queueName)
+		check(err)
 	}
 }
