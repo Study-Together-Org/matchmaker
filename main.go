@@ -144,7 +144,7 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	}
 
 	// In this example, we only care about messages that are "ping".
-	if !strings.HasPrefix(m.Content, "%match") {
+	if !strings.HasPrefix(m.Content, "%") {
 		return
 	}
 
@@ -154,8 +154,7 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		return
 	}
 
-	var arg = m.Content[len("%match") + 1:] // + 1 for space
-	if arg == "help" {
+	if m.Content[1:] == "help" {
 		var helpMsg =
 `
 Find Study Partners by Preference (Beta and sorry for the primitiveness)
@@ -171,7 +170,8 @@ Please use one of the following commands to join the respective queues:
 `
 		_, err := s.ChannelMessageSend(m.ChannelID, helpMsg)
 		check(err)
-	}	else {
+	}	else if strings.HasPrefix(m.Content, "%match") { // prevent indexing out of bounds
+		var arg = m.Content[len("%match") + 1:] // + 1 for space
 		match(s, m, arg)
 	}
 }
