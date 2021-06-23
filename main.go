@@ -143,14 +143,14 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		}
 	}
 
-	if !found {
-		_, err := s.ChannelMessageSend(m.ChannelID, m.Author.Mention() + " Please issue commands in bot channels!")
-		check(err)
+	// In this example, we only care about messages that are "ping".
+	if !strings.HasPrefix(m.Content, "%match") {
 		return
 	}
 
-	// In this example, we only care about messages that are "ping".
-	if !strings.HasPrefix(m.Content, "%match") {
+	if !found {
+		_, err := s.ChannelMessageSend(m.ChannelID, m.Author.Mention() + " Please issue commands in bot channels!")
+		check(err)
 		return
 	}
 
