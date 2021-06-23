@@ -7,6 +7,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/go-redis/redis/v8"
 	"github.com/hjson/hjson-go"
+	"github.com/joho/godotenv"
 	"io/ioutil"
 	"os"
 	"os/signal"
@@ -22,10 +23,11 @@ var (
 
 var ctx = context.Background()
 
+// TODO find a way to assign it to be nil here
 var rdb = redis.NewClient(&redis.Options{
-Addr:     "localhost:6379",
-Password: "", // no password set
-DB:       1,  // use default DB
+	Addr:     "localhost:6379",
+	Password: "", // no password set
+	DB:       1,  // use default DB
 })
 
 var allQueueNames = make(map[string]int)
@@ -37,16 +39,16 @@ func init() {
 }
 
 func check(e error) {
-    if e != nil {
-        panic(e)
-    }
+	if e != nil {
+		panic(e)
+	}
 }
 
 func match(s *discordgo.Session, m *discordgo.MessageCreate, queueName string) {
 	if value, ok := allQueueNames[queueName]; ok {
 		fmt.Println("value: ", value)
 	} else {
-		_, err := s.ChannelMessageSend(m.ChannelID, m.Author.Mention() + "match target invalid!")
+		_, err := s.ChannelMessageSend(m.ChannelID, m.Author.Mention()+"match target invalid!")
 		check(err)
 	}
 
@@ -58,30 +60,39 @@ func match(s *discordgo.Session, m *discordgo.MessageCreate, queueName string) {
 	}
 
 	var curLen = int(rdb.LLen(ctx, queueName).Val())
-	if curLen == capacity - 1 {
+	if curLen == capacity-1 {
 		var matchedMembers = rdb.LPopCount(ctx, queueName, curLen).Val()
-		_, err := s.ChannelMessageSend(m.ChannelID, queueName + ": " + strings.Join(matchedMembers, " ") + " " + m.Author.Mention())
+		_, err := s.ChannelMessageSend(m.ChannelID, queueName+": "+strings.Join(matchedMembers, " ")+" "+m.Author.Mention())
 		check(err)
 	} else {
 		rdb.RPush(ctx, queueName, m.Author.Mention())
-		_, err := s.ChannelMessageSend(m.ChannelID, strconv.Itoa(curLen + 1) + "/" + strconv.Itoa(capacity) + " filled in " + queueName)
+		_, err := s.ChannelMessageSend(m.ChannelID, strconv.Itoa(curLen+1)+"/"+strconv.Itoa(capacity)+" filled in "+queueName)
 		check(err)
 	}
 }
+
 func main() {
-    // read Hjson
+	// read Hjson
 	hjsonBytes, err := ioutil.ReadFile(os.Getenv("STUDY_TOGETHER_MODE") + "_config.hjson")
 	check(err)
-
-	// We need to provide a variable where Hjson
-	// can put the decoded data.
-
 	// Decode and a check for errors.
 	if err := hjson.Unmarshal(hjsonBytes, &config); err != nil {
 		panic(err)
 	}
 
-	fmt.Println(config)
+	err = godotenv.Load(os.Getenv("STUDY_TOGETHER_MODE") + ".env")
+	check(err)
+
+	// redis
+	redisDBNum, err := strconv.Atoi(os.Getenv("redis_db_num"))
+	check(err)
+
+	rdb = redis.NewClient(&redis.Options{
+		Addr:     os.Getenv("redis_host") + ":" + os.Getenv("redis_port"),
+		Password: os.Getenv("redis_password"), // no password set
+		DB:  redisDBNum,  // use default DB
+	})
+	rdb.Ping(ctx)
 
 	// Create a new Discord session using the provided bot token.
 	dg, err := discordgo.New("Bot " + Token)
@@ -137,7 +148,7 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	var found = false
 	var commandChannels = config["command_channels"].([]interface{})
 
-	for _, v := range commandChannels{
+	for _, v := range commandChannels {
 		if m.ChannelID == v {
 			found = true
 		}
@@ -149,14 +160,13 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	}
 
 	if !found {
-		_, err := s.ChannelMessageSend(m.ChannelID, m.Author.Mention() + " Please issue commands in bot channels!")
+		_, err := s.ChannelMessageSend(m.ChannelID, m.Author.Mention()+" Please issue commands in bot channels!")
 		check(err)
 		return
 	}
 
 	if m.Content[1:] == "help" {
-		var helpMsg =
-`
+		var helpMsg = `
 Find Study Partners by Preference (Beta and sorry for the primitiveness)
 Currently supported preference: 1. choosing between 2 or 3 people and 2. whether to use cam/screenshare
 Please use one of the following commands to join the respective queues:
@@ -170,8 +180,8 @@ Please use one of the following commands to join the respective queues:
 `
 		_, err := s.ChannelMessageSend(m.ChannelID, helpMsg)
 		check(err)
-	}	else if strings.HasPrefix(m.Content, "%match") { // prevent indexing out of bounds
-		var arg = m.Content[len("%match") + 1:] // + 1 for space
+	} else if strings.HasPrefix(m.Content, "%match") { // prevent indexing out of bounds
+		var arg = m.Content[len("%match")+1:] // + 1 for space
 		match(s, m, arg)
 	}
 }
